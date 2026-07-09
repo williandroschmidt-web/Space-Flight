@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Orbit Simulator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background: #05050a; font-family: 'Segoe UI', Roboto, sans-serif; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none; }
+        h1 { font-size: 24px; font-weight: 300; letter-spacing: 2px; margin-bottom: 15px; color: #4af; }
+        .stat { font-size: 14px; margin-bottom: 5px; font-family: monospace; }
+        .bar-container { width: 150px; height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; display: inline-block; vertical-align: middle; margin-left: 10px; overflow: hidden; }
+        .bar { height: 100%; background: #4af; width: 100%; transition: width 0.1s; }
+        #instructions { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.6); font-size: 12px; text-align: center; pointer-events: none; line-height: 1.6; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h1>ORBITAL SIMULATOR</h1>
+        <div class="stat">ALTITUDE: <span id="alt">0</span> m</div>
+        <div class="stat">VELOCIDADE: <span id="vel">0</span> m/s</div>
+        <div class="stat">COMBUSTÍVEL: <div class="bar-container"><div id="fuel-bar" class="bar"></div></div></div>
+    </div>
+
+    <div id="instructions">
+        [SETAS ESQUERDA/DIREITA] Rotacionar Foguete | [SETA CIMA] Propulsor<br>
+        Entre em órbita na Lua (cinza) sem colidir!
+    </div>
+
+    <canvas id="simCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Configurações do Universo (Física)
+        const G = 0.15; 
+        const earth = { x: 0, y: 0, r: 120, mass: 100000, color: '#1a365d' };
+        const moon = { x: 800, y: -600, r: 60, mass: 20000, color: '#4a4a4a' };
+
+        // Foguete
+        const rocket = {
+            x: 0, y: -125,
+            vx: 4.2, vy: 0, // Velocidade inicial para ajudar a sair da Terra
+            angle: -Math.PI / 2,
+            thrust: 0.12,
+            fuel: 100,
+            width: 10, height: 24,
+            alive: true
+        };
+
+        // Câmera
+        const cam = { x: 0, y: 0, zoom: 0.8 };
+        const keys = {};
+
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        // Estrelas de fundo
+        const stars = [];
+        for(let i=0; i<300; i++) {
+            stars.push({
+                x: (Math.random() - 0.5) * 5000,
+                y: (Math.random() - 0.5) * 5000,
+                r: Math.random() * 1.5
+            });
+        }
+
+        function applyGravity(body) {
+            let dx = body.x - rocket.x;
+            let dy = body.y - rocket.y;
+            let distSq = dx*dx + dy*dy;
+            let dist = Math.sqrt(distSq);
+
+            if (dist < body.r + rocket.width/2) {
+                // Colisão
+                if (Math.abs(rocket.vx) > 3 || Math.abs(rocket.vy) > 3) {
+                    rocket.alive = false;
+                }
+                // Stop physics na colisão simples
+                rocket.vx = 0; rocket.vy = 0;
+                return;
+            }
+
+            let force = (G * body.mass) / distSq;
+            rocket.vx += (dx / dist) * force;
+            rocket.vy += (dy / dist) * force;
+        }
+
+        function update() {
+            if (rocket.alive) {
+                // Controles de rotação
+                if (keys['ArrowLeft']) rocket.angle -= 0.05;
+                if (keys['ArrowRight']) rocket.angle += 0.05;
+
+                // Propulsão
+                if (keys['ArrowUp'] && rocket.fuel > 0) {
+                    rocket.vx += Math.cos(rocket.angle) * rocket.thrust;
+                    rocket.vy += Math.sin(rocket.angle) * rocket.thrust;
+                    rocket.fuel -= 0.2;
+                }
+
+                // Gravidade dos corpos celestes
+                applyGravity(earth);
+                applyGravity(moon);
+
+                // Atualizar posições
+                rocket.x += rocket.vx;
+                rocket.y += rocket.vy;
+            }
+
+            // Câmera suave seguindo o foguete
+            cam.x += (rocket.x - cam.x) * 0.1;
+            cam.y += (rocket.y - cam.y) * 0.1;
+
+            // Atualizar UI
+            let distToEarth = Math.sqrt(rocket.x*rocket.x + rocket.y*rocket.y) - earth.r;
+            document.getElementById('alt').innerText = Math.max(0, Math.round(distToEarth * 10));
+            let speed = Math.sqrt(rocket.vx*rocket.vx + rocket.vy*rocket.vy);
+            document.getElementById('vel').innerText = Math.round(speed * 100);
+            document.getElementById('fuel-bar').style.width = Math.max(0, rocket.fuel) + '%';
+        }
+
+        function drawPlanet(body) {
+            ctx.beginPath();
+            ctx.arc(body.x, body.y, body.r, 0, Math.PI*2);
+            ctx.fillStyle = body.color;
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        function draw() {
+            // Limpar tela com tom espacial profundo
+            ctx.fillStyle = '#05050a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            // Centralizar e aplicar zoom
+            ctx.translate(canvas.width/2, canvas.height/2);
+            ctx.scale(cam.zoom, cam.zoom);
+            ctx.translate(-cam.x, -cam.y);
+
+            // Desenhar estrelas
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            stars.forEach(s => {
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+                ctx.fill();
+            });
+
+            // Desenhar Órbitas/Guias Visuais discretas
+            ctx.beginPath();
+            ctx.arc(earth.x, earth.y, 400, 0, Math.PI*2);
+            ctx.strokeStyle = 'rgba(68, 170, 255, 0.05)';
+            ctx.stroke();
+
+            // Desenhar Planetas
+            drawPlanet(earth);
+            drawPlanet(moon);
+
+            // Desenhar Foguete
+            ctx.save();
+            ctx.translate(rocket.x, rocket.y);
+            ctx.rotate(rocket.angle);
+
+            if (rocket.alive) {
+                // Fogo do propulsor
+                if (keys['ArrowUp'] && rocket.fuel > 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(-rocket.height/2, -4);
+                    ctx.lineTo(-rocket.height/2 - (10 + Math.random()*15), 0);
+                    ctx.lineTo(-rocket.height/2, 4);
+                    ctx.fillStyle = '#ff7700';
+                    ctx.fill();
+                }
+
+                // Corpo do Foguete (Estilo Vetorial Moderno)
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.moveTo(-rocket.height/2, -rocket.width/2);
+                ctx.lineTo(rocket.height/2 - 6, -rocket.width/2);
+                ctx.lineTo(rocket.height/2, 0); // Bico
+                ctx.lineTo(rocket.height/2 - 6, rocket.width/2);
+                ctx.lineTo(-rocket.height/2, rocket.width/2);
+                ctx.closePath();
+                ctx.fill();
+
+                // Detalhe da cabine (janela azul)
+                ctx.fillStyle = '#4af';
+                ctx.fillRect(2, -2, 4, 4);
+            } else {
+                // Destruído
+                ctx.font = '12px monospace';
+                ctx.fillStyle = '#ff3333';
+                ctx.fillText('💥 IMPACTO', -25, 0);
+            }
+
+            ctx.restore();
+            ctx.restore();
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
